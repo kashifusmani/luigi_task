@@ -6,7 +6,7 @@ from collections import defaultdict
 from luigi import six
 from string import punctuation
 from json import dumps, loads
-from math import log10
+from math import log10, sqrt, pow
 import logging
 
 logger = logging.getLogger('luigi-interface')
@@ -22,13 +22,13 @@ class CleanUp(luigi.Task):
     def run(self):
         stripped_lines = []
         unique_words = set()
-        with open('documents_1.txt', 'r') as f:
+        with open('documents.txt', 'r') as f:
             prev_doc = ''
             for line in f:
                 if not line.strip() == self.separator:
                     for p in punctuation:
                         line = line.replace(p, '')
-                    prev_doc = prev_doc + ' ' + line.replace('\n', '')
+                    prev_doc = prev_doc + ' ' + line.replace('\n', '').replace('\t', '')
                 else:
                     stripped_lines.append(prev_doc.lower())
                     prev_doc = ''
@@ -36,11 +36,11 @@ class CleanUp(luigi.Task):
             for line in stripped_lines:
                 out_file.write(line.strip() + '\n')
 
-        with open('documents_unique', 'w') as out_file:
+        with open('documents_unique.txt', 'w') as out_file:
             for line in stripped_lines:
-                for word in line.split(' '):
-                    if not word == '':
-                        unique_words.add(word)
+                for word in line.strip().split(' '):
+                    if not word == '' and not word == ' ':
+                        unique_words.add(word.strip())
             for item in unique_words:
                 out_file.write(item + "\n")
 
@@ -56,8 +56,6 @@ class ComputeTf(luigi.Task):
     def run(self):
         all_tfs = []
         for t in self.input():
-            print("==========")
-            print(t)
             with t.open('r') as in_file:
                 for doc in in_file:
                     result = {}
@@ -97,7 +95,7 @@ class ComputeIdf(luigi.Task):
                 for doc in in_file:
                     tfs.append(loads(doc[0:len(doc)-1]))
         counts = {}
-        with open('documents_unique', 'r') as in_file:
+        with open('documents_unique.txt', 'r') as in_file:
             for word in in_file:
                 word = word[0: len(word) - 1]
                 count = 0
@@ -107,6 +105,70 @@ class ComputeIdf(luigi.Task):
                 counts[word] = log10(len(tfs) / count)
         with self.output().open('w') as out_file:
             out_file.write(dumps(counts))
+
+
+class ComputeTfIdf(luigi.Task):
+    def requires(self):
+        return [ComputeIdf()]
+
+    def output(self):
+        return luigi.LocalTarget("documents_tf_idf.txt")
+
+    def run(self):
+        with open('documents_idf.txt', 'r') as idfs_file:
+            idfs = loads(idfs_file.read())
+        tfs = []
+        with open('documents_tf.txt', 'r') as tfs_file:
+            for line in tfs_file:
+                tfs.append(loads(line))
+
+        for tf in tfs:
+            result = {}
+            for term in tf:
+                result[term] = tf[term] * idfs[term]
+            with open('documents_tf_idf.txt', 'a') as out_file:
+                out_file.write(dumps(result) + '\n')
+
+
+class ComputeSimilarity(luigi.Task):
+    def requires(self):
+        return [ComputeTfIdf()]
+
+    def output(self):
+        return luigi.LocalTarget("similarity.csv")
+
+    def run(self):
+        result = []
+        input = []
+        for t in self.input():
+            with t.open('r') as in_file:
+                for line in in_file:
+                     input.append(loads(line))
+        corpus_len = len(input)
+        for i in range(0, corpus_len):
+            rest_len = corpus_len- i -1
+            principle_elem = input[rest_len]
+            for k in range(0, rest_len):
+                compare_to = input[rest_len - k - 1]
+                principle_elem_index = rest_len
+                compare_to_elem_index = rest_len - k -1
+                euclidean_distance = compute_euclidean(principle_elem, compare_to)
+                result.append("%s,%s,%s" % (str(compare_to_elem_index), str(principle_elem_index), str(euclidean_distance)))
+
+        with self.output().open('w') as out_file:
+            for item in result:
+                out_file.write(item + '\n')
+
+
+def compute_euclidean(principle_elem, compare_to):
+    sum_so_far = 0
+    for term in principle_elem:
+        tf_idf_other = 0
+        if term in compare_to:
+            tf_idf_other = compare_to[term]
+        sum_so_far = sum_so_far + pow((principle_elem[term] - tf_idf_other), 2)
+    return sqrt(sum_so_far)
+
 
 '''
 
