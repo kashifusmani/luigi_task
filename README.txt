@@ -1,0 +1,1 @@
+1. cat and CAT are same words

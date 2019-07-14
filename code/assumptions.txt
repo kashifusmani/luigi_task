@@ -1,2 +1,0 @@
-1. documents.txt is in same folder. Fix this and make configurable
-2. cat and CAT are same words
